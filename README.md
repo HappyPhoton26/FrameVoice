@@ -7,6 +7,8 @@ Everything runs on the headset itself (no cloud, no account). Speech is turned i
 [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`base.en`). Unclear requests go to Microsoft's
 **Phi-4-mini** through [llama.cpp](https://github.com/ggml-org/llama.cpp). Both run on the headset's GPU (Vulkan).
 
+How the code fits together, with block diagrams: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## What you can say
 
 | say | what happens |
