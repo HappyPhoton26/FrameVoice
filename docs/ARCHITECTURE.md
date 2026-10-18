@@ -46,7 +46,7 @@ flowchart LR
     APPS["Apps & Steam games"]
 
     BTN -- "laser click" --> OVL
-    OVL -- "stdout: tap / down / up / wake" --> PY
+    OVL -- "stdout: tap / stop / down / up /<br/>standby / wake" --> PY
     PY -- "stdin: icon … / mode …" --> OVL
     OVL --> ICON
     OVL --> BTN
@@ -111,7 +111,7 @@ is needed.
 stateDiagram-v2
     [*] --> Waking: voice (start)
     Waking --> Active: whisper + Phi loaded (~20 s)
-    Active --> Standby: say "standby" / voice standby /<br/>auto after standby_after_min
+    Active --> Standby: power button / say "standby" /<br/>voice standby / auto after standby_after_min
     Standby --> Waking: click the grey dot / voice wake
 
     Active: Active — big red button, models loaded, mic closed until you click
@@ -158,6 +158,8 @@ One text line per message.
 |---|---|---|
 | vrmic → main | `tap` | quick click on the button: listen for one phrase |
 | vrmic → main | `down` / `up` | trigger held on the button / let go (push to talk) |
+| vrmic → main | `stop` | button clicked again while listening: finish the phrase now, or cancel |
+| vrmic → main | `standby` | the power button beside it was clicked |
 | vrmic → main | `wake` | the grey standby dot was clicked |
 | main → vrmic | `icon listening\|thinking\|ok\|fail` | show that state (ok / fail fade after 1.2 s) |
 | main → vrmic | `hide` | back to idle |

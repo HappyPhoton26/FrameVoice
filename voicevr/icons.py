@@ -33,12 +33,17 @@ def _glyph(kind, x, y):
         stem = _seg(x, y, c, c + 8, c, c + 13) - 1.6
         base = _seg(x, y, c - 6, c + 13, c + 6, c + 13) - 1.6
         return min(body, arc, stem, base)
+    if kind == "power":                                                # standby symbol: open ring + bar
+        ring = abs(math.hypot(x - c, y - c - 2) - 13) - 2.2
+        if y < c - 4 and abs(x - c) < 9:
+            ring = 99
+        return min(ring, _seg(x, y, c, c - 15, c, c - 1) - 2.2)
     if kind == "ok":
         return min(_seg(x, y, c - 11, c + 1, c - 3, c + 9), _seg(x, y, c - 3, c + 9, c + 12, c - 8)) - 3
     return min(_seg(x, y, c - 9, c - 9, c + 9, c + 9), _seg(x, y, c - 9, c + 9, c + 9, c - 9)) - 3   # fail
 
 
-COLORS = {"button": (220, 40, 50), "button-off": (90, 90, 90), "listening": (220, 40, 50), "thinking": (235, 160, 20), "ok": (40, 170, 80), "fail": (200, 40, 40)}
+COLORS = {"button": (220, 40, 50), "button-off": (90, 90, 90), "listening": (220, 40, 50), "thinking": (235, 160, 20), "power": (70, 70, 75), "ok": (40, 170, 80), "fail": (200, 40, 40)}
 
 
 def make_icons(out_dir):

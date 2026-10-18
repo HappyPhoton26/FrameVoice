@@ -2,7 +2,8 @@
 //   * the voice button: a small mic button on the back of the left wrist (follows the left controller),
 //     always showing. Point the other hand's laser at it and click: prints "tap" (voicevr then listens
 //     for one phrase). Hold the trigger on it instead to talk for as long as you hold: "down"/"up".
-//     It turns amber while voicevr is thinking.
+//     It turns amber while voicevr is thinking. Clicking it again while it listens prints "stop".
+//   * the standby button: a small grey power button beside it; clicking it prints "standby".
 //   * standby: the button shrinks to a small grey dot and clicks are checked less often; clicking it prints
 //     "wake" and it turns amber until voicevr says it's ready again.
 //   * the status icon: bottom centre of your view (fixed to the headset), shown only while voicevr is
@@ -68,13 +69,19 @@ int main(int argc, char **argv) {
 
     VROverlayHandle_t mic = make_overlay("mic", "Voice status", width);
     VROverlayHandle_t btn = make_overlay("button", "Voice button", bwidth);
-    if (!mic || !btn) { fprintf(stderr, "overlays unavailable\n"); return 1; }
+    float pwidth = bwidth * 0.55f;
+    VROverlayHandle_t pwr = make_overlay("power", "Voice standby button", pwidth);
+    if (!mic || !btn || !pwr) { fprintf(stderr, "overlays unavailable\n"); return 1; }
     struct HmdMatrix34_t m = {{{1, 0, 0, ox}, {0, 1, 0, oy}, {0, 0, 1, oz}}};
     ov->SetOverlayTransformTrackedDeviceRelative(mic, k_unTrackedDeviceIndex_Hmd, &m);
     // button: tilted about the controller's x axis so it faces up and back toward your eyes
     float c = cosf(tilt * (float)M_PI / 180), s = sinf(tilt * (float)M_PI / 180);
     struct HmdMatrix34_t bm = {{{1, 0, 0, bx}, {0, c, -s, by}, {0, s, c, bz}}};
+    struct HmdMatrix34_t pm = bm;   // power button: just beside the mic button
+    pm.m[0][3] += bwidth / 2 + pwidth / 2 + 0.006f;
+    set_image(pwr, "power");
     TrackedDeviceIndex_t left = k_unTrackedDeviceIndexInvalid;
+    int listening = 0;   // voicevr is listening (icon listening): a click on the button means stop
 
     char idle[64] = "button";            // button (wake word on) / button-off
     char mode[16] = "active";            // active / standby (small grey dot) / waking (amber, ignores clicks)
@@ -93,13 +100,25 @@ int main(int argc, char **argv) {
             TrackedDeviceIndex_t l = vsys->GetTrackedDeviceIndexForControllerRole(ETrackedControllerRole_TrackedControllerRole_LeftHand);
             if (l != left) {
                 left = l;
-                if (left == k_unTrackedDeviceIndexInvalid) ov->HideOverlay(btn);
-                else { ov->SetOverlayTransformTrackedDeviceRelative(btn, left, &bm); ov->ShowOverlay(btn); }
+                if (left == k_unTrackedDeviceIndexInvalid) { ov->HideOverlay(btn); ov->HideOverlay(pwr); }
+                else {
+                    ov->SetOverlayTransformTrackedDeviceRelative(btn, left, &bm); ov->ShowOverlay(btn);
+                    ov->SetOverlayTransformTrackedDeviceRelative(pwr, left, &pm);
+                    if (!strcmp(mode, "active")) ov->ShowOverlay(pwr);
+                }
             }
         }
         struct VREvent_t ev;
         while (vsys->PollNextEvent(&ev, sizeof ev)) {}
         while (ov->PollNextOverlayEvent(mic, &ev, sizeof ev)) {}
+        while (ov->PollNextOverlayEvent(pwr, &ev, sizeof ev))
+            if (ev.eventType == EVREventType_VREvent_MouseButtonDown && !strcmp(mode, "active")) {
+                held = 0; listening = 0;
+                snprintf(mode, sizeof mode, "standby");
+                ov->HideOverlay(pwr); ov->SetOverlayWidthInMeters(btn, bwidth * 0.4f); ov->SetOverlayAlpha(btn, 0.6f);
+                IDLE(); idle_at = 0;
+                printf("standby\n");
+            }
         while (ov->PollNextOverlayEvent(btn, &ev, sizeof ev)) {
             if (strcmp(mode, "active")) {   // standby: any click wakes voicevr up; waking: wait
                 if (ev.eventType == EVREventType_VREvent_MouseButtonDown && !strcmp(mode, "standby")) {
@@ -109,7 +128,12 @@ int main(int argc, char **argv) {
                 }
                 continue;
             }
-            if (ev.eventType == EVREventType_VREvent_MouseButtonDown && !held) {
+            if (ev.eventType == EVREventType_VREvent_MouseButtonDown && listening && !held) {
+                listening = 0; held = -1;               // stop: the matching button-up is ignored
+                printf("stop\n");
+            } else if (ev.eventType == EVREventType_VREvent_MouseButtonUp && held == -1) {
+                held = 0;
+            } else if (ev.eventType == EVREventType_VREvent_MouseButtonDown && !held) {
                 held = 1; held_since = now_s(); idle_at = 0;
                 SHOW("listening", 0.9f); BTN("listening");
             } else if (ev.eventType == EVREventType_VREvent_MouseButtonUp && held) {
@@ -119,8 +143,8 @@ int main(int argc, char **argv) {
             }
         }
         // held longer than a click: push to talk until the trigger is let go
-        if (held && held_since && now_s() - held_since > 0.6) { held_since = 0; hold_start = now_s(); printf("down\n"); }
-        if (held && !held_since && now_s() - hold_start > 30) { held = 0; printf("up\n"); }   // safety
+        if (held == 1 && held_since && now_s() - held_since > 0.6) { held_since = 0; hold_start = now_s(); printf("down\n"); }
+        if (held == 1 && !held_since && now_s() - hold_start > 30) { held = 0; printf("up\n"); }   // safety
         char ch; ssize_t r;
         while ((r = read(0, &ch, 1)) == 1) {
             if (ch != '\n') { if (cmd_n < (int)sizeof cmd - 1) cmd[cmd_n++] = ch; continue; }
@@ -128,13 +152,16 @@ int main(int argc, char **argv) {
             if (!strncmp(cmd, "icon ", 5)) {
                 SHOW(cmd + 5, 0.9f);
                 const char *b = cmd + 5;
+                listening = !strcmp(b, "listening");
                 BTN(!strcmp(b, "listening") || !strcmp(b, "thinking") ? b : idle);
                 idle_at = (!strcmp(b, "ok") || !strcmp(b, "fail")) ? now_s() + 1.2 : 0;
-            } else if (!strcmp(cmd, "hide")) { if (!held) IDLE(); idle_at = 0; }
+            } else if (!strcmp(cmd, "hide")) { listening = 0; if (!held) IDLE(); idle_at = 0; }
             else if (!strncmp(cmd, "mode ", 5)) {
                 snprintf(mode, sizeof mode, "%.15s", cmd + 5);
                 int sb = !strcmp(mode, "standby");
-                if (sb) held = 0;
+                if (sb) { held = 0; listening = 0; }
+                if (!strcmp(mode, "active") && left != k_unTrackedDeviceIndexInvalid) ov->ShowOverlay(pwr);
+                else ov->HideOverlay(pwr);
                 ov->SetOverlayWidthInMeters(btn, sb ? bwidth * 0.4f : bwidth);
                 ov->SetOverlayAlpha(btn, sb ? 0.6f : 1.0f);
                 IDLE(); idle_at = 0;

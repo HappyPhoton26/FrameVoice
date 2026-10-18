@@ -60,6 +60,8 @@ glslc, Vulkan headers) come with the Frame's SteamOS. No `sudo` and no system ch
 - Point the **right-hand laser** at it and **click**, then speak. The phrase ends when you stop
   talking. If you say nothing for 6 s, it gives up.
 - Or **hold the trigger** on the button while you talk and let go when you're done.
+- **Click the button again** while it's listening to stop right away. If you had started talking,
+  what you said is used. Otherwise it cancels.
 
 ### Standby
 
@@ -67,7 +69,8 @@ When you're not using it, FrameVoice can go into standby. Whisper and Phi shut d
 (freeing about 3.5 GB of memory and the GPU), the microphone is closed, and the wrist button
 shrinks to a **small grey dot**.
 
-- **Go to standby**: say "standby" (or "go to sleep"), or run `voice standby`. It also goes into standby
+- **Go to standby**: click the small grey **power button** beside the mic button, say "standby" (or
+  "go to sleep"), or run `voice standby`. It also goes into standby
   by itself after 10 minutes without use (`standby_after_min` in `config.json`, `0` = never).
 - **Wake up**: click the small grey dot. It grows and turns amber while the models load (about 20 s),
   then turns red: ready to talk. You can also run `voice wake`.

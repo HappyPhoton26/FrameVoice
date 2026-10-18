@@ -284,6 +284,7 @@ class VoiceVR:
         self.ptt = None            # bytearray while the wrist button is held
         self.t_down = 0
         self.armed_until = 0       # after a bare "computer": the next phrase is the command
+        self.cut = False           # button clicked again while listening: end the phrase now
         self.jobs = queue.Queue()
         self.proc = None           # pw-record
         self.servers = []          # whisper-server, llama-server while active
@@ -380,6 +381,15 @@ class VoiceVR:
                     continue
             if not self.wake_on and seg is None and time.time() >= self.armed_until:
                 continue
+            if self.cut:               # stop clicked: use what was said so far, or give up
+                self.cut = False
+                if seg is not None and len(seg) / 32000 >= 0.5:
+                    status("thinking")
+                    self.jobs.put(("wake", bytes(seg)))
+                else:
+                    self.disarm(cancelled=True)
+                seg, loud, pre = None, 0, []
+                continue
             # a cheap loudness gate; whisper only runs on phrases that stand out from the noise
             if seg is None:
                 floor = 0.97 * floor + 0.03 * rms if rms < floor * 3 else floor
@@ -398,12 +408,28 @@ class VoiceVR:
 
     # quick click on the wrist button: like saying a bare "computer" (the next phrase is the command)
     def arm(self, secs=6):
+        self.cut = False
         self.last_use = time.time()
         self.armed_until = time.time() + secs
         log("button: listening for a command")
         status("listening")
         self.update_mic()
         threading.Timer(secs + 0.5, self.disarm_if_idle).start()
+
+    def stop(self):
+        """Wrist button clicked again while listening."""
+        if time.time() < self.armed_until and self.proc:
+            log("button: stop")
+            self.cut = True        # the reader finishes or cancels the phrase
+        else:
+            self.disarm(cancelled=True)
+
+    def disarm(self, cancelled=False):
+        self.armed_until = 0
+        if cancelled:
+            log("cancelled")
+            status(None)
+        self.update_mic()
 
     def disarm_if_idle(self):
         if self.armed_until and time.time() >= self.armed_until:
@@ -617,10 +643,14 @@ def main():
                 line = line.strip()
                 if line == "wake":
                     vv.wake_up()
+                elif line == "standby":
+                    threading.Thread(target=vv.standby).start()
                 elif vv.mode != "active":
                     continue
                 elif line == "tap":
                     vv.arm()
+                elif line == "stop":
+                    vv.stop()
                 elif line == "down":
                     vv.start_listening()
                 elif line == "up":
