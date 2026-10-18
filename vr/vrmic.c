@@ -120,12 +120,12 @@ int main(int argc, char **argv) {
                 printf("standby\n");
             }
         while (ov->PollNextOverlayEvent(btn, &ev, sizeof ev)) {
-            if (strcmp(mode, "active")) {   // standby: any click wakes voicevr up; waking: wait
+            if (strcmp(mode, "active")) {   // standby: any click wakes voicevr up; waking: listen once it's ready
                 if (ev.eventType == EVREventType_VREvent_MouseButtonDown && !strcmp(mode, "standby")) {
                     snprintf(mode, sizeof mode, "waking");
                     ov->SetOverlayWidthInMeters(btn, bwidth); ov->SetOverlayAlpha(btn, 1.0f); BTN(idle);
                     printf("wake\n");
-                }
+                } else if (ev.eventType == EVREventType_VREvent_MouseButtonDown) printf("tap\n");
                 continue;
             }
             if (ev.eventType == EVREventType_VREvent_MouseButtonDown && listening && !held) {

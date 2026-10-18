@@ -289,6 +289,7 @@ class VoiceVR:
         self.proc = None           # pw-record
         self.servers = []          # whisper-server, llama-server while active
         self.mode = "standby"      # active / waking / standby (servers stopped, mic closed, small button)
+        self.tap_when_ready = False   # button clicked while waking up: start listening once ready
         self.last_use = time.time()
         self.request_file = os.path.join(CACHE, "request")   # `voice standby` / `voice wake` write here
         threading.Thread(target=self.worker, daemon=True).start()
@@ -304,6 +305,7 @@ class VoiceVR:
             if self.mode != "standby":
                 return
             self.mode = "waking"
+            self.tap_when_ready = False
         vr_send("mode waking")
         log("waking up...")
         t = threading.Thread(target=self._start)
@@ -318,6 +320,9 @@ class VoiceVR:
         vr_send("mode active")
         self.update_mic()
         log("ready: laser-click the mic button on your left wrist, then talk (or hold the trigger on it while talking)")
+        if self.tap_when_ready:
+            self.tap_when_ready = False
+            self.arm()
 
     def standby(self):
         with self.lock:
@@ -645,8 +650,11 @@ def main():
                     vv.wake_up()
                 elif line == "standby":
                     threading.Thread(target=vv.standby).start()
+                elif vv.mode == "waking" and line == "tap":
+                    vv.tap_when_ready = True
+                    log("button clicked while waking up: will listen as soon as it's ready")
                 elif vv.mode != "active":
-                    continue
+                    log(f"button {line!r} ignored ({vv.mode})")
                 elif line == "tap":
                     vv.arm()
                 elif line == "stop":

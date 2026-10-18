@@ -73,7 +73,8 @@ shrinks to a **small grey dot**.
   "go to sleep"), or run `voice standby`. It also goes into standby
   by itself after 10 minutes without use (`standby_after_min` in `config.json`, `0` = never).
 - **Wake up**: click the small grey dot. It grows and turns amber while the models load (about 20 s),
-  then turns red: ready to talk. You can also run `voice wake`.
+  then turns red: ready to talk (allow up to ~30 s). If you click the amber button while it's waking up,
+it starts listening as soon as it's ready. You can also run `voice wake`.
 
 A small icon at the bottom of your view shows what is happening:
 
