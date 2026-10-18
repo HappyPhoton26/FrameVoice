@@ -1,0 +1,9 @@
+# built / downloaded by install.sh
+third_party/
+models/
+deps/
+vr/vrmic
+install.log
+# your own settings (install.sh copies config.example.json here)
+config.json
+__pycache__/

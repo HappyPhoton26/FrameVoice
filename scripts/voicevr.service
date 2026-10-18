@@ -1,0 +1,13 @@
+[Unit]
+Description=FrameVoice - Steam Frame voice control
+After=graphical-session.target pipewire.service
+
+[Service]
+ExecStart=@ROOT@/run.sh
+WorkingDirectory=@ROOT@
+Restart=on-failure
+RestartSec=10
+KillMode=control-group
+
+[Install]
+WantedBy=default.target

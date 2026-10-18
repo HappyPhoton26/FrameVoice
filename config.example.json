@@ -1,0 +1,64 @@
+{
+  "whisper_model": "ggml-base.en.bin",
+  "llm_model": "phi.gguf",
+  "mic_target": "",
+  "space_after_dictation": true,
+  "typing": "xtest",
+  "wake_word": "computer",
+  "wake_word_enabled": false,
+  "mic_button": {
+    "offset": [
+      0,
+      -0.17,
+      -0.6
+    ],
+    "width_m": 0.026
+  },
+  "wrist_button": {
+    "offset": [
+      0,
+      0.02,
+      0.13
+    ],
+    "tilt_deg": -60,
+    "width_m": 0.04
+  },
+  "steam_libraries": [
+    "~/.local/share/Steam"
+  ],
+  "apps": [
+    {
+      "name": "Firefox",
+      "aliases": [
+        "browser",
+        "web browser",
+        "internet",
+        "fire fox"
+      ],
+      "command": "flatpak run org.mozilla.firefox"
+    },
+    {
+      "name": "Konsole",
+      "aliases": [
+        "terminal",
+        "console",
+        "konsole terminal",
+        "command line",
+        "shell"
+      ],
+      "command": "konsole"
+    },
+    {
+      "name": "KDE Desktop",
+      "aliases": [
+        "desktop",
+        "kde",
+        "plasma",
+        "kde plasma",
+        "the desktop"
+      ],
+      "command": "steamos-nested-desktop",
+      "running_check": "startplasma-wayland"
+    }
+  ]
+}
