@@ -1,13 +1,20 @@
 #!/bin/bash
-# voice        start voicevr (runs in the background, keeps going if this terminal closes)
-# voice stop   stop it
-# voice log    follow the log
+# voice           start FrameVoice (runs in the background, keeps going if this terminal closes)
+# voice stop      stop it
+# voice standby   standby: whisper and Phi stop, the wrist button becomes a small grey dot
+# voice wake      wake up from standby (or just click the small wrist button)
+# voice log       follow the log
+LOG=~/.cache/voicevr/voicevr.log
 case "$1" in
   stop) systemctl --user stop voicevr && echo "voicevr stopped" ;;
-  log)  exec tail -f ~/.cache/voicevr/voicevr.log ;;
-  *)    if systemctl --user is-active -q voicevr; then echo "voicevr is already running"; exit 0; fi
+  log)  exec tail -f $LOG ;;
+  standby|wake)
+        systemctl --user is-active -q voicevr || { echo "voicevr isn't running (start it with: voice)"; exit 1; }
+        echo "$1" > ~/.cache/voicevr/request && echo "voicevr: $1 requested" ;;
+  "")   if systemctl --user is-active -q voicevr; then echo "voicevr is already running"; exit 0; fi
         systemctl --user start voicevr
         echo "starting voicevr..."; sleep 2   # let run.sh clear the old log first
-        until grep -q '^.* ready:' ~/.cache/voicevr/voicevr.log 2>/dev/null || ! systemctl --user is-active -q voicevr; do sleep 1; done
-        if systemctl --user is-active -q voicevr; then echo "voicevr ready (voice stop to stop)"; else echo "voicevr failed, see: voice log"; fi ;;
+        until grep -qE '^.* (ready|standby):' $LOG 2>/dev/null || ! systemctl --user is-active -q voicevr; do sleep 1; done
+        if systemctl --user is-active -q voicevr; then echo "voicevr ready (voice standby / voice stop)"; else echo "voicevr failed, see: voice log"; fi ;;
+  *)    sed -n '2,6s/^# //p' "$0"; exit 1 ;;
 esac

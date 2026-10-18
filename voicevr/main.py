@@ -58,6 +58,15 @@ def status_button(name):
             pass
 
 
+def vr_send(line):
+    if _vr and _vr.poll() is None:
+        try:
+            _vr.stdin.write(line + "\n")
+            _vr.stdin.flush()
+        except OSError:
+            pass
+
+
 def status(name):
     if _vr and _vr.poll() is None:
         try:
@@ -144,7 +153,7 @@ def mic_level(path):
 # ---------- targets ----------
 LAUNCH_WORDS = re.compile(r"\b(open|launch|start|run|play|load|bring up|fire up|boot|switch to|go to|go back to|"
                           r"show me|i need|i want|give me|terminal|browser|desktop|firefox|konsole)\b", re.I)
-SKIP_GAME = re.compile(r"proton|steam linux runtime|steamworks|steamvr|redistributable|fex-emu", re.I)
+SKIP_GAME = re.compile(r"proton|steam linux runtime|steamworks|steamvr|redistributable|fex-emu|^fex$|legacy steam runtime", re.I)
 
 
 def steam_games(cfg):
@@ -162,8 +171,14 @@ def steam_games(cfg):
     return games
 
 
+NUMBERS = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7",
+           "eight": "8", "nine": "9", "ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6", "vii": "7"}
+
+
 def norm(s):
-    return re.sub(r"[^a-z0-9 ]", "", s.lower().replace("&", " and ")).strip()
+    """Lower case, punctuation -> spaces, numbers as digits ("II", "two" -> "2"), so names compare fairly."""
+    s = re.sub(r"[^a-z0-9 ]", " ", s.lower().replace("&", " and ").replace("'", ""))
+    return " ".join(NUMBERS.get(w, w) for w in s.split())
 
 
 def best_match(phrase, names):
@@ -173,7 +188,11 @@ def best_match(phrase, names):
     for n in names:
         q = norm(n)
         r = difflib.SequenceMatcher(None, p, q).ratio()
-        if q and (q == p or (len(p) > 3 and (q.startswith(p) or p in q.split(" ", 1)[0] + " " or p in q))):
+        if q == p:
+            r = 1.0
+        elif q and len(p) > 3 and (q + " ").startswith(p + " "):
+            r = max(r, 0.9 + 0.05 * len(p) / len(q))   # start of the name, whole words; shortest wins: "half life 2" -> "Half-Life 2: VR Mod"
+        elif q and len(p) > 3 and p in q:
             r = max(r, 0.9)
         if r > score:
             best, score = n, r
@@ -267,9 +286,65 @@ class VoiceVR:
         self.armed_until = 0       # after a bare "computer": the next phrase is the command
         self.jobs = queue.Queue()
         self.proc = None           # pw-record
+        self.servers = []          # whisper-server, llama-server while active
+        self.mode = "standby"      # active / waking / standby (servers stopped, mic closed, small button)
+        self.last_use = time.time()
+        self.request_file = os.path.join(CACHE, "request")   # `voice standby` / `voice wake` write here
         threading.Thread(target=self.worker, daemon=True).start()
         threading.Thread(target=self.watch_state, daemon=True).start()
+        threading.Thread(target=self.auto_standby, daemon=True).start()
         self.update_mic()
+
+    # ---------- standby ----------
+    # Standby stops whisper and Phi completely (frees ~3 GB and the GPU) and shrinks the wrist button to a
+    # small grey dot; clicking it starts them again (~20 s, amber button), then it is ready to talk.
+    def wake_up(self, wait=False):
+        with self.lock:
+            if self.mode != "standby":
+                return
+            self.mode = "waking"
+        vr_send("mode waking")
+        log("waking up...")
+        t = threading.Thread(target=self._start)
+        t.start()
+        if wait:
+            t.join()
+
+    def _start(self):
+        self.servers = start_servers(self.cfg)
+        self.last_use = time.time()
+        self.mode = "active"
+        vr_send("mode active")
+        self.update_mic()
+        log("ready: laser-click the mic button on your left wrist, then talk (or hold the trigger on it while talking)")
+
+    def standby(self):
+        with self.lock:
+            if self.mode != "active":
+                return
+            self.mode = "standby"
+            self.ptt = None
+        self.armed_until = 0
+        self.update_mic()
+        vr_send("mode standby")
+        for p in self.servers:
+            p.terminate()
+        for p in self.servers:
+            try:
+                p.wait(10)
+            except subprocess.TimeoutExpired:
+                p.kill()
+        self.servers = []
+        log("standby: whisper and Phi stopped; click the small wrist button to wake up")
+
+    def auto_standby(self):
+        mins = self.cfg.get("standby_after_min", 10)
+        while mins:
+            time.sleep(30)
+            busy = self.ptt is not None or time.time() < self.armed_until or not self.jobs.empty()
+            if self.mode == "active" and not busy and time.time() - self.last_use > mins * 60:
+                log(f"nothing said for {mins} min")
+                self.standby()
 
     # ---------- microphone ----------
     # One pw-record stream feeds both the wrist button and the wake word. It only runs while the wake word
@@ -277,7 +352,7 @@ class VoiceVR:
     CHUNK = 480 * 2   # 30 ms of 16 kHz mono s16
 
     def update_mic(self):
-        need = self.wake_on or self.ptt is not None or time.time() < self.armed_until
+        need = self.mode == "active" and (self.wake_on or self.ptt is not None or time.time() < self.armed_until)
         if need and not self.proc:
             cmd = ["pw-record", "--rate", "16000", "--channels", "1", "--format", "s16", "--raw"]
             if self.cfg.get("mic_target"):
@@ -287,7 +362,7 @@ class VoiceVR:
         elif not need and self.proc:
             self.proc.terminate()
             self.proc = None
-        status_button("button" if self.wake_on else "button-off")
+        status_button("button")
 
     def reader(self, proc):
         pre = []                   # ~0.3 s before speech starts
@@ -323,6 +398,7 @@ class VoiceVR:
 
     # quick click on the wrist button: like saying a bare "computer" (the next phrase is the command)
     def arm(self, secs=6):
+        self.last_use = time.time()
         self.armed_until = time.time() + secs
         log("button: listening for a command")
         status("listening")
@@ -341,7 +417,7 @@ class VoiceVR:
             if self.ptt is not None:
                 return
             self.ptt = bytearray()
-        self.t_down = time.time()
+        self.t_down = self.last_use = time.time()
         self.update_mic()
         log("listening...")
 
@@ -350,6 +426,8 @@ class VoiceVR:
             return
         time.sleep(0.15)   # keep the tail of the last word
         with self.lock:
+            if self.ptt is None:   # went to standby meanwhile
+                return
             pcm, self.ptt = bytes(self.ptt), None
         self.update_mic()
         if time.time() - self.t_down < 0.5:
@@ -362,6 +440,7 @@ class VoiceVR:
     def worker(self):
         while True:
             kind, pcm = self.jobs.get()
+            self.last_use = time.time()
             try:
                 self.process(kind, pcm)
             except Exception as e:
@@ -409,6 +488,15 @@ class VoiceVR:
         while True:
             time.sleep(2)
             try:
+                req = open(self.request_file).read().strip()
+                os.remove(self.request_file)
+            except OSError:
+                req = ""
+            if req == "standby":
+                threading.Thread(target=self.standby).start()
+            elif req == "wake":
+                self.wake_up()
+            try:
                 on = json.load(open(self.state_file)).get("wake_word", True)
             except (OSError, ValueError):
                 continue
@@ -418,9 +506,13 @@ class VoiceVR:
                 log("wake word", "on" if on else "off", "(from wake.sh)")
 
     def control(self, text):
-        """computer, disable / enable: turn the always-listening wake word off or on."""
+        """standby / go to sleep: standby.  computer, disable / enable: the always-listening wake word off / on."""
         t = norm(text)
-        if re.fullmatch(r"(disable|stop listening|go to sleep|sleep|mute|turn off|wake word off)", t):
+        if re.fullmatch(r"((go to )?(standby|stand by|sleep)|goodnight|good night)", t):
+            status("ok")
+            threading.Timer(1.3, self.standby).start()   # let the green check show first
+            return True
+        if re.fullmatch(r"(disable|stop listening|mute|turn off|wake word off)", t):
             on = False
         elif re.fullmatch(r"(enable|start listening|wake up|unmute|turn on|wake word on)", t):
             on = True
@@ -504,11 +596,13 @@ def main():
     global _vr
     make_icons(os.path.join(CACHE, "icons"))
     cfg = load_config()
-    servers = start_servers(cfg)
     vr = None
+    vv = VoiceVR()
     try:
-        vv = VoiceVR()
-        log("ready: laser-click the mic button on your left wrist, then talk (or hold the trigger on it while talking)")
+        if not cfg.get("start_in_standby", False):
+            vv.wake_up(wait=True)
+        else:
+            log("standby: click the small wrist button to wake up")
         mb = cfg.get("mic_button", {})
         wb = cfg.get("wrist_button", {})
         args = [os.path.join(ROOT, "vr/vrmic"), os.path.join(CACHE, "icons"),
@@ -517,10 +611,15 @@ def main():
                 str(wb.get("width_m", 0.04))]
         while True:   # restart the VR helper if SteamVR restarts
             vr = _vr = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+            vr_send("mode " + ("waking" if vv.mode == "waking" else vv.mode))
             vv.update_mic()   # sends the button colour
             for line in vr.stdout:
                 line = line.strip()
-                if line == "tap":
+                if line == "wake":
+                    vv.wake_up()
+                elif vv.mode != "active":
+                    continue
+                elif line == "tap":
                     vv.arm()
                 elif line == "down":
                     vv.start_listening()
@@ -530,7 +629,7 @@ def main():
             log("VR helper exited; restarting in 5 s")
             time.sleep(5)
     finally:
-        for p in servers + ([vr] if vr else []):
+        for p in vv.servers + ([vr] if vr else []):
             p.terminate()
 
 

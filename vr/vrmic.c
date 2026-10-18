@@ -3,10 +3,13 @@
 //     always showing. Point the other hand's laser at it and click: prints "tap" (voicevr then listens
 //     for one phrase). Hold the trigger on it instead to talk for as long as you hold: "down"/"up".
 //     It turns amber while voicevr is thinking.
+//   * standby: the button shrinks to a small grey dot and clicks are checked less often; clicking it prints
+//     "wake" and it turns amber until voicevr says it's ready again.
 //   * the status icon: bottom centre of your view (fixed to the headset), shown only while voicevr is
 //     listening or working.
 //   stdin from voicevr: "icon <listening|thinking|ok|fail>" shows a state (ok/fail go back to idle
-//     after a moment), "hide" goes back to idle, "button <button|button-off>" sets the button's idle image.
+//     after a moment), "hide" goes back to idle, "button <button|button-off>" sets the button's idle image,
+//     "mode <active|standby|waking>" switches standby.
 // Usage: vrmic <icon dir> [x y z of the status icon from the headset, m] [width m]
 //              [x y z of the button from the left controller, m] [tilt deg] [button width m]
 #include <openvr/openvr_capi.h>
@@ -74,9 +77,10 @@ int main(int argc, char **argv) {
     TrackedDeviceIndex_t left = k_unTrackedDeviceIndexInvalid;
 
     char idle[64] = "button";            // button (wake word on) / button-off
+    char mode[16] = "active";            // active / standby (small grey dot) / waking (amber, ignores clicks)
     // status icon hidden while idle: it only appears while listening or working on a command
     #define SHOW(name, alpha) do { set_image(mic, name); ov->SetOverlayAlpha(mic, alpha); ov->ShowOverlay(mic); } while (0)
-    #define BTN(name) set_image(btn, name)
+    #define BTN(name) set_image(btn, !strcmp(mode, "standby") ? "button-off" : !strcmp(mode, "waking") ? "thinking" : (name))
     #define IDLE() do { ov->HideOverlay(mic); BTN(idle); } while (0)
     IDLE();
 
@@ -97,6 +101,14 @@ int main(int argc, char **argv) {
         while (vsys->PollNextEvent(&ev, sizeof ev)) {}
         while (ov->PollNextOverlayEvent(mic, &ev, sizeof ev)) {}
         while (ov->PollNextOverlayEvent(btn, &ev, sizeof ev)) {
+            if (strcmp(mode, "active")) {   // standby: any click wakes voicevr up; waking: wait
+                if (ev.eventType == EVREventType_VREvent_MouseButtonDown && !strcmp(mode, "standby")) {
+                    snprintf(mode, sizeof mode, "waking");
+                    ov->SetOverlayWidthInMeters(btn, bwidth); ov->SetOverlayAlpha(btn, 1.0f); BTN(idle);
+                    printf("wake\n");
+                }
+                continue;
+            }
             if (ev.eventType == EVREventType_VREvent_MouseButtonDown && !held) {
                 held = 1; held_since = now_s(); idle_at = 0;
                 SHOW("listening", 0.9f); BTN("listening");
@@ -119,6 +131,14 @@ int main(int argc, char **argv) {
                 BTN(!strcmp(b, "listening") || !strcmp(b, "thinking") ? b : idle);
                 idle_at = (!strcmp(b, "ok") || !strcmp(b, "fail")) ? now_s() + 1.2 : 0;
             } else if (!strcmp(cmd, "hide")) { if (!held) IDLE(); idle_at = 0; }
+            else if (!strncmp(cmd, "mode ", 5)) {
+                snprintf(mode, sizeof mode, "%.15s", cmd + 5);
+                int sb = !strcmp(mode, "standby");
+                if (sb) held = 0;
+                ov->SetOverlayWidthInMeters(btn, sb ? bwidth * 0.4f : bwidth);
+                ov->SetOverlayAlpha(btn, sb ? 0.6f : 1.0f);
+                IDLE(); idle_at = 0;
+            }
             else if (!strncmp(cmd, "button ", 7)) {
                 snprintf(idle, sizeof idle, "%.60s", cmd + 7);
                 if (!held && !idle_at && !ov->IsOverlayVisible(mic)) BTN(idle);
@@ -126,7 +146,7 @@ int main(int argc, char **argv) {
         }
         if (r == 0) break;   // voicevr went away
         if (idle_at && now_s() > idle_at) { IDLE(); idle_at = 0; }
-        usleep(20000);
+        usleep(strcmp(mode, "standby") ? 20000 : 100000);   // standby: check 10x a second instead of 50x
     }
     VR_ShutdownInternal();
     return 0;

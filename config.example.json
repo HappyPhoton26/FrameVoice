@@ -23,6 +23,8 @@
     "tilt_deg": -60,
     "width_m": 0.04
   },
+  "standby_after_min": 10,
+  "start_in_standby": false,
   "steam_libraries": [
     "~/.local/share/Steam"
   ],

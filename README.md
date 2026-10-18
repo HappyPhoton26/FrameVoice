@@ -48,7 +48,8 @@ glslc, Vulkan headers) come with the Frame's SteamOS. No `sudo` and no system ch
    ```
 
    It prints `voicevr ready` after about 30 s, once the models are loaded. It keeps running after you close
-   the terminal. `voice stop` stops it and `voice log` shows what it hears. It does **not** start at
+   the terminal. `voice stop` stops it, `voice standby` / `voice wake` switch standby, and `voice log`
+   shows what it hears. It does **not** start at
    login by itself. Run `systemctl --user enable voicevr` if you want it to.
 
 ## Using it
@@ -58,11 +59,22 @@ glslc, Vulkan headers) come with the Frame's SteamOS. No `sudo` and no system ch
   talking. If you say nothing for 6 s, it gives up.
 - Or **hold the trigger** on the button while you talk and let go when you're done.
 
+### Standby
+
+When you're not using it, FrameVoice can go into standby. Whisper and Phi shut down completely
+(freeing about 3.5 GB of memory and the GPU), the microphone is closed, and the wrist button
+shrinks to a **small grey dot**.
+
+- **Go to standby**: say "standby" (or "go to sleep"), or run `voice standby`. It also goes into standby
+  by itself after 10 minutes without use (`standby_after_min` in `config.json`, `0` = never).
+- **Wake up**: click the small grey dot. It grows and turns amber while the models load (about 20 s),
+  then turns red: ready to talk. You can also run `voice wake`.
+
 A small icon at the bottom of your view shows what is happening:
 
 | icon | meaning |
 |---|---|
-| red mic | listening |
+| red mic | listening (the wrist button itself is red when ready, amber while working or waking up, a small grey dot in standby) |
 | amber mic | working on it |
 | green check | done (launched or typed) |
 | red X | didn't catch that, no microphone sound, or nothing installed matches |
@@ -80,19 +92,28 @@ doesn't track them.
 - `wrist_button`: where the button sits on the left controller (`offset` x/y/z in metres,
   `tilt_deg`, `width_m`).
 - `mic_button`: where the status icon sits in your view.
+- `standby_after_min`: minutes without use before standby (`0` = never). `start_in_standby`: start as the
+  grey dot, so the models only load when you first click it.
 - `mic_target`: a PipeWire microphone name, if the default mic is the wrong one.
 - `typing`: `"xtest"` (default) or `"uinput"`.
 - `wake_word_enabled`: hands-free "computer, open firefox". It's off by default because it keeps the mic and
   some CPU running. You can also switch it with `./wake.sh on|off`.
 
-Steam games are found automatically from your Steam library.
+Installed Steam games are found automatically from your Steam library ("play Half-Life 2", "open Moss
+Book Two": numbers and Roman numerals are treated the same). To add another app, copy an entry in `apps`.
+For example, VS Code installed from Flathub:
+
+```
+{"name": "VS Code", "aliases": ["visual studio code", "visual code", "vs code"],
+ "command": "flatpak run com.visualstudio.code", "running_check": "com.visualstudio.code"}
+```
 
 ## Speed
 
 - Plain dictation and clear commands ("open X", "play Y") skip Phi: about 0.5 s after you finish.
 - Requests that need Phi take about 1–1.5 s.
 - While idle, the microphone is closed and nothing runs on the GPU. The models stay loaded in memory
-  (about 3 GB) so they answer right away.
+  (about 3.5 GB) so they answer right away, until standby unloads them.
 
 ## Troubleshooting
 
